@@ -8,11 +8,23 @@
 #include <cstring>
 #include <exception>
 #include <iostream>
+#include <map>
 #include <stdexcept>
+#include <utility>
 #include <vector>
+
+class QueueFamilyIndices {
+public:
+    std::optional<uint32_t> graphics_family;
+
+    bool is_complete() {
+        return graphics_family.has_value();
+    }
+};
 
 class TriangleApplication {
    private:
+
     static constexpr uint32_t WINDOW_WIDTH = 800;
     static constexpr uint32_t WINDOW_HEIGHT = 600;
 
@@ -22,10 +34,10 @@ class TriangleApplication {
     static constexpr bool ENABLE_VALIDATION_LAYERS = true;
 #endif
 
-    GLFWwindow* mptr_window;
-    VkInstance m_instance;
-    VkDebugUtilsMessengerEXT m_debug_messenger;
-    VkPhysicalDevice m_physical_device;
+    GLFWwindow* mptr_window = nullptr;
+    VkInstance m_instance = VK_NULL_HANDLE;
+    VkDebugUtilsMessengerEXT m_debug_messenger = VK_NULL_HANDLE;
+    VkPhysicalDevice m_physical_device = VK_NULL_HANDLE;
 
     const std::vector<const char*> m_validation_layers = {"VK_LAYER_KHRONOS_validation"};
 
@@ -76,6 +88,7 @@ class TriangleApplication {
         create_instance();
         check_extension_support();
         setup_debug_messenger();
+        pick_physical_device();
     }
 
     void main_loop() {
@@ -272,11 +285,24 @@ class TriangleApplication {
         std::vector<VkPhysicalDevice> devices(count);
         vkEnumeratePhysicalDevices(m_instance, &count, devices.data());
 
+        std::multimap<uint32_t, VkPhysicalDevice> candidates;
+
         for (const auto& device : devices) {
-            if (is_physical_device_suitable(device)) {
-                m_physical_device = device;
-                break;
-            }
+            uint32_t score = rate_physical_device(device);
+            candidates.insert(std::make_pair(score, device));
+        }
+
+
+        if (candidates.empty()) {
+            throw std::runtime_error(
+                "Triangle::pick_physical_device => Failed to find a suitable GPU.");
+        }
+
+        if (candidates.rbegin()->first > 0) {
+            m_physical_device = candidates.rbegin()->second;
+        } else {
+            throw std::runtime_error(
+                "Triangle::pick_physical_device => Failed to find a suitable GPU.");
         }
 
         if (m_physical_device == VK_NULL_HANDLE) {
@@ -285,15 +311,60 @@ class TriangleApplication {
         }
     }
 
-    bool is_physical_device_suitable(VkPhysicalDevice device) {
+    uint32_t rate_physical_device(VkPhysicalDevice device) {
         VkPhysicalDeviceProperties properties;
         VkPhysicalDeviceFeatures features;
 
         vkGetPhysicalDeviceFeatures(device, &features);
         vkGetPhysicalDeviceProperties(device, &properties);
 
-        return properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
-               features.geometryShader;
+        int score = 0;
+
+        if (properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU) {
+            score += 1000;
+        }
+
+        score += properties.limits.maxImageDimension2D;
+
+        if (!features.geometryShader) {
+            return 0;
+        }
+
+        if (!is_physical_device_suitable(device)) {
+            return 0;
+        }
+
+        return score;
+    }
+
+    bool is_physical_device_suitable(VkPhysicalDevice device) {
+        QueueFamilyIndices indices = find_queue_families(device);
+        return indices.is_complete();
+    }
+
+    QueueFamilyIndices find_queue_families(VkPhysicalDevice device) {
+        QueueFamilyIndices indices;
+
+        uint32_t queue_family_count = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, nullptr);
+
+        std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, queue_families.data());
+
+        uint32_t i = 0;
+        for (const auto& queue_family : queue_families) {
+            if (queue_family.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+                indices.graphics_family = i;
+            }
+
+            if (indices.is_complete()) {
+                break;
+            }
+
+            ++i;
+        }
+
+        return indices;
     }
 };
 
