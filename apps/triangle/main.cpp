@@ -12,6 +12,7 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
+#include <optional>
 
 class QueueFamilyIndices {
 public:
@@ -38,6 +39,8 @@ class TriangleApplication {
     VkInstance m_instance = VK_NULL_HANDLE;
     VkDebugUtilsMessengerEXT m_debug_messenger = VK_NULL_HANDLE;
     VkPhysicalDevice m_physical_device = VK_NULL_HANDLE;
+    VkDevice m_logical_device = VK_NULL_HANDLE;
+    VkQueue m_graphics_queue = VK_NULL_HANDLE;
 
     const std::vector<const char*> m_validation_layers = {"VK_LAYER_KHRONOS_validation"};
 
@@ -60,6 +63,7 @@ class TriangleApplication {
             proxy_destroy_debug_utils_messenger_ext(m_instance, m_debug_messenger, nullptr);
         }
 
+        vkDestroyDevice(m_logical_device, nullptr);
         vkDestroyInstance(m_instance, nullptr);
 
         glfwDestroyWindow(mptr_window);
@@ -69,7 +73,7 @@ class TriangleApplication {
     void init_glfw() {
         int result = glfwInit();
         if (!result) {
-            throw std::runtime_error("Triangle::init_glfw => Failed to initialize GLFW.");
+            throw std::runtime_error("TriangleApplication::init_glfw => Failed to initialize GLFW.");
         }
     }
 
@@ -80,7 +84,7 @@ class TriangleApplication {
         mptr_window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "triangle", nullptr, nullptr);
         if (!mptr_window) {
             glfwTerminate();
-            throw std::runtime_error("Triangle::init_window => Failed to create GLFW window");
+            throw std::runtime_error("TriangleApplication::init_window => Failed to create GLFW window");
         }
     }
 
@@ -89,6 +93,7 @@ class TriangleApplication {
         check_extension_support();
         setup_debug_messenger();
         pick_physical_device();
+        create_logical_device();
     }
 
     void main_loop() {
@@ -193,7 +198,7 @@ class TriangleApplication {
         std::vector<VkExtensionProperties> extensions(count);
         vkEnumerateInstanceExtensionProperties(nullptr, &count, extensions.data());
 
-        std::cout << "Available extensions:\n";
+        std::cout << "TriangleApplication::check_extension_support => Available extensions:\n";
         for (const auto& extension : extensions) {
             std::cout << '\t' << extension.extensionName << '\n';
         }
@@ -279,7 +284,7 @@ class TriangleApplication {
 
         if (count == 0) {
             throw std::runtime_error(
-                "Triangle::pick_physical_device => Failed to find GPUs with Vulkan support.");
+                "TriangleApplication::pick_physical_device => Failed to find GPUs with Vulkan support.");
         }
 
         std::vector<VkPhysicalDevice> devices(count);
@@ -295,19 +300,19 @@ class TriangleApplication {
 
         if (candidates.empty()) {
             throw std::runtime_error(
-                "Triangle::pick_physical_device => Failed to find a suitable GPU.");
+                "TriangleApplication::pick_physical_device => Failed to find a suitable GPU.");
         }
 
         if (candidates.rbegin()->first > 0) {
             m_physical_device = candidates.rbegin()->second;
         } else {
             throw std::runtime_error(
-                "Triangle::pick_physical_device => Failed to find a suitable GPU.");
+                "TriangleApplication::pick_physical_device => Failed to find a suitable GPU.");
         }
 
         if (m_physical_device == VK_NULL_HANDLE) {
             throw std::runtime_error(
-                "Triangle::pick_physical_device => Failed to find a suitable GPU.");
+                "TriangleApplication::pick_physical_device => Failed to find a suitable GPU.");
         }
     }
 
@@ -338,11 +343,11 @@ class TriangleApplication {
     }
 
     bool is_physical_device_suitable(VkPhysicalDevice device) {
-        QueueFamilyIndices indices = find_queue_families(device);
+        QueueFamilyIndices indices = find_queue_familiy_indeces(device);
         return indices.is_complete();
     }
 
-    QueueFamilyIndices find_queue_families(VkPhysicalDevice device) {
+    QueueFamilyIndices find_queue_familiy_indeces(VkPhysicalDevice device) {
         QueueFamilyIndices indices;
 
         uint32_t queue_family_count = 0;
@@ -365,6 +370,42 @@ class TriangleApplication {
         }
 
         return indices;
+    }
+
+    void create_logical_device() {
+        QueueFamilyIndices queue_family_indices = find_queue_familiy_indeces(m_physical_device);
+
+        VkDeviceQueueCreateInfo queue_create_info = {};
+        queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queue_create_info.queueFamilyIndex = queue_family_indices.graphics_family.value();
+        queue_create_info.queueCount = 1;
+
+        float queue_priority = 1.0f;
+        queue_create_info.pQueuePriorities = &queue_priority;
+
+        VkPhysicalDeviceFeatures physical_device_features = {};
+
+        VkDeviceCreateInfo logical_device_create_info = {};
+        logical_device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        logical_device_create_info.queueCreateInfoCount = 1;
+        logical_device_create_info.pQueueCreateInfos = &queue_create_info;
+        logical_device_create_info.pEnabledFeatures = &physical_device_features;
+
+        // Previous implementations of Vulkan made a distinction between instance and device specific validation layers.
+        // Backwards compatibility with older implementations of Vulkan.
+        if (ENABLE_VALIDATION_LAYERS) {
+            logical_device_create_info.enabledLayerCount = static_cast<uint32_t>(m_validation_layers.size());
+            logical_device_create_info.ppEnabledLayerNames = m_validation_layers.data();
+        } else {
+            logical_device_create_info.enabledLayerCount = 0;
+            logical_device_create_info.ppEnabledLayerNames = nullptr;
+        }
+
+        if (vkCreateDevice(m_physical_device, &logical_device_create_info, nullptr, &m_logical_device) != VK_SUCCESS) {
+            throw std::runtime_error("TriangleApplication::create_logical_device => failed to create logical device!");
+        }
+
+        vkGetDeviceQueue(m_logical_device, queue_family_indices.graphics_family.value(), 0, &m_graphics_queue);
     }
 };
 
