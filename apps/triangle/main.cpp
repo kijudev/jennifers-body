@@ -25,23 +25,51 @@ class TriangleApplication {
     GLFWwindow* mptr_window;
     VkInstance m_instance;
     VkDebugUtilsMessengerEXT m_debug_messenger;
+    VkPhysicalDevice m_physical_device;
 
     const std::vector<const char*> m_validation_layers = {"VK_LAYER_KHRONOS_validation"};
 
    public:
     void run() {
-        init_window();
-        init_vulcan();
+        init();
         main_loop();
         cleanup();
     }
 
    private:
+    void init() {
+        init_glfw();
+        init_window();
+        init_vulcan();
+    }
+
+    void cleanup() {
+        if (ENABLE_VALIDATION_LAYERS) {
+            proxy_destroy_debug_utils_messenger_ext(m_instance, m_debug_messenger, nullptr);
+        }
+
+        vkDestroyInstance(m_instance, nullptr);
+
+        glfwDestroyWindow(mptr_window);
+        glfwTerminate();
+    }
+
+    void init_glfw() {
+        int result = glfwInit();
+        if (!result) {
+            throw std::runtime_error("Triangle::init_glfw => Failed to initialize GLFW.");
+        }
+    }
+
     void init_window() {
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
         mptr_window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "triangle", nullptr, nullptr);
+        if (!mptr_window) {
+            glfwTerminate();
+            throw std::runtime_error("Triangle::init_window => Failed to create GLFW window");
+        }
     }
 
     void init_vulcan() {
@@ -54,17 +82,6 @@ class TriangleApplication {
         while (!glfwWindowShouldClose(mptr_window)) {
             glfwPollEvents();
         }
-    }
-
-    void cleanup() {
-        if (ENABLE_VALIDATION_LAYERS) {
-            proxy_destroy_debug_utils_messenger_ext(m_instance, m_debug_messenger, nullptr);
-        }
-
-        vkDestroyInstance(m_instance, nullptr);
-
-        glfwDestroyWindow(mptr_window);
-        glfwTerminate();
     }
 
     // Creates a vulkan instance
@@ -99,6 +116,7 @@ class TriangleApplication {
             instance_create_info.pNext = &debug_messenger_info;
         } else {
             instance_create_info.enabledLayerCount = 0;
+            instance_create_info.pNext = nullptr;
         }
 
         VkResult instance_result = vkCreateInstance(&instance_create_info, nullptr, &m_instance);
@@ -109,19 +127,19 @@ class TriangleApplication {
         }
     }
 
-    void populate_application_info(VkApplicationInfo& application_info) {
-        application_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-        application_info.pApplicationName = "triangle";
-        application_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-        application_info.pEngineName = "no_engine";
-        application_info.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-        application_info.apiVersion = VK_API_VERSION_1_0;
+    void populate_application_info(VkApplicationInfo& info) {
+        info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+        info.pApplicationName = "triangle";
+        info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+        info.pEngineName = "no_engine";
+        info.engineVersion = VK_MAKE_VERSION(1, 0, 0);
+        info.apiVersion = VK_API_VERSION_1_0;
     }
 
-    void populate_instance_create_info(VkInstanceCreateInfo& instance_create_info,
+    void populate_instance_create_info(VkInstanceCreateInfo& create_info,
                                        VkApplicationInfo* application_info) {
-        instance_create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-        instance_create_info.pApplicationInfo = application_info;
+        create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+        create_info.pApplicationInfo = application_info;
     }
 
     void setup_debug_messenger() {
@@ -156,11 +174,11 @@ class TriangleApplication {
     }
 
     void check_extension_support() {
-        uint32_t extension_count = 0;
-        vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, nullptr);
+        uint32_t count = 0;
+        vkEnumerateInstanceExtensionProperties(nullptr, &count, nullptr);
 
-        std::vector<VkExtensionProperties> extensions(extension_count);
-        vkEnumerateInstanceExtensionProperties(nullptr, &extension_count, extensions.data());
+        std::vector<VkExtensionProperties> extensions(count);
+        vkEnumerateInstanceExtensionProperties(nullptr, &count, extensions.data());
 
         std::cout << "Available extensions:\n";
         for (const auto& extension : extensions) {
@@ -169,11 +187,11 @@ class TriangleApplication {
     }
 
     bool check_validation_layer_support() {
-        uint32_t layer_count;
-        vkEnumerateInstanceLayerProperties(&layer_count, nullptr);
+        uint32_t count;
+        vkEnumerateInstanceLayerProperties(&count, nullptr);
 
-        std::vector<VkLayerProperties> available_layers(layer_count);
-        vkEnumerateInstanceLayerProperties(&layer_count, available_layers.data());
+        std::vector<VkLayerProperties> available_layers(count);
+        vkEnumerateInstanceLayerProperties(&count, available_layers.data());
 
         for (const char* layer_name : m_validation_layers) {
             bool layer_found = false;
@@ -194,18 +212,18 @@ class TriangleApplication {
     }
 
     std::vector<const char*> get_required_extensions() {
-        uint32_t glfw_extension_cout = 0;
+        uint32_t glfw_extion_count = 0;
         const char** glfw_extensions;
 
-        glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extension_cout);
+        glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extion_count);
 
-        std::vector<const char*> extensions(glfw_extensions, glfw_extensions + glfw_extension_cout);
+        std::vector<const char*> vulkan_extensions(glfw_extensions, glfw_extensions + glfw_extion_count);
 
         if (ENABLE_VALIDATION_LAYERS) {
-            extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+            vulkan_extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
         };
 
-        return extensions;
+        return vulkan_extensions;
     }
 
     // Returns true if the debug message is to aborted
@@ -213,7 +231,9 @@ class TriangleApplication {
         VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
         VkDebugUtilsMessageTypeFlagsEXT message_type,
         const VkDebugUtilsMessengerCallbackDataEXT* ptr_callback_data, void* ptr_user_data) {
-        std::cerr << "Validation layer: " << ptr_callback_data->pMessage << std::endl;
+        std::cerr << "Validation layer: " << ptr_callback_data->pMessage
+                  << " Severity: " << message_severity << " Type: " << message_type << ptr_user_data
+                  << std::endl;
 
         return VK_FALSE;
     }
@@ -231,13 +251,49 @@ class TriangleApplication {
     }
 
     static void proxy_destroy_debug_utils_messenger_ext(
-        VkInstance instance, VkDebugUtilsMessengerEXT debug_messenger,
+        VkInstance instance, VkDebugUtilsMessengerEXT messenger,
         const VkAllocationCallbacks* ptr_allocator) {
         auto func = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(
             instance, "vkDestroyDebugUtilsMessengerEXT");
         if (func != nullptr) {
-            func(instance, debug_messenger, ptr_allocator);
+            func(instance, messenger, ptr_allocator);
         }
+    }
+
+    void pick_physical_device() {
+        uint32_t count = 0;
+        vkEnumeratePhysicalDevices(m_instance, &count, nullptr);
+
+        if (count == 0) {
+            throw std::runtime_error(
+                "Triangle::pick_physical_device => Failed to find GPUs with Vulkan support.");
+        }
+
+        std::vector<VkPhysicalDevice> devices(count);
+        vkEnumeratePhysicalDevices(m_instance, &count, devices.data());
+
+        for (const auto& device : devices) {
+            if (is_physical_device_suitable(device)) {
+                m_physical_device = device;
+                break;
+            }
+        }
+
+        if (m_physical_device == VK_NULL_HANDLE) {
+            throw std::runtime_error(
+                "Triangle::pick_physical_device => Failed to find a suitable GPU.");
+        }
+    }
+
+    bool is_physical_device_suitable(VkPhysicalDevice device) {
+        VkPhysicalDeviceProperties properties;
+        VkPhysicalDeviceFeatures features;
+
+        vkGetPhysicalDeviceFeatures(device, &features);
+        vkGetPhysicalDeviceProperties(device, &properties);
+
+        return properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU &&
+               features.geometryShader;
     }
 };
 
