@@ -9,23 +9,20 @@
 #include <exception>
 #include <iostream>
 #include <map>
+#include <optional>
 #include <stdexcept>
 #include <utility>
 #include <vector>
-#include <optional>
 
 class QueueFamilyIndices {
-public:
+   public:
     std::optional<uint32_t> graphics_family;
 
-    bool is_complete() {
-        return graphics_family.has_value();
-    }
+    bool is_complete() { return graphics_family.has_value(); }
 };
 
 class TriangleApplication {
    private:
-
     static constexpr uint32_t WINDOW_WIDTH = 800;
     static constexpr uint32_t WINDOW_HEIGHT = 600;
 
@@ -73,7 +70,8 @@ class TriangleApplication {
     void init_glfw() {
         int result = glfwInit();
         if (!result) {
-            throw std::runtime_error("TriangleApplication::init_glfw => Failed to initialize GLFW.");
+            throw std::runtime_error(
+                "TriangleApplication::init_glfw => Failed to initialize GLFW.");
         }
     }
 
@@ -84,7 +82,8 @@ class TriangleApplication {
         mptr_window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "triangle", nullptr, nullptr);
         if (!mptr_window) {
             glfwTerminate();
-            throw std::runtime_error("TriangleApplication::init_window => Failed to create GLFW window");
+            throw std::runtime_error(
+                "TriangleApplication::init_window => Failed to create GLFW window");
         }
     }
 
@@ -235,7 +234,8 @@ class TriangleApplication {
 
         glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extion_count);
 
-        std::vector<const char*> vulkan_extensions(glfw_extensions, glfw_extensions + glfw_extion_count);
+        std::vector<const char*> vulkan_extensions(glfw_extensions,
+                                                   glfw_extensions + glfw_extion_count);
 
         if (ENABLE_VALIDATION_LAYERS) {
             vulkan_extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
@@ -284,7 +284,8 @@ class TriangleApplication {
 
         if (count == 0) {
             throw std::runtime_error(
-                "TriangleApplication::pick_physical_device => Failed to find GPUs with Vulkan support.");
+                "TriangleApplication::pick_physical_device => Failed to find GPUs with Vulkan "
+                "support.");
         }
 
         std::vector<VkPhysicalDevice> devices(count);
@@ -296,7 +297,6 @@ class TriangleApplication {
             uint32_t score = rate_physical_device(device);
             candidates.insert(std::make_pair(score, device));
         }
-
 
         if (candidates.empty()) {
             throw std::runtime_error(
@@ -354,7 +354,8 @@ class TriangleApplication {
         vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, nullptr);
 
         std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
-        vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, queue_families.data());
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count,
+                                                 queue_families.data());
 
         uint32_t i = 0;
         for (const auto& queue_family : queue_families) {
@@ -391,21 +392,25 @@ class TriangleApplication {
         logical_device_create_info.pQueueCreateInfos = &queue_create_info;
         logical_device_create_info.pEnabledFeatures = &physical_device_features;
 
-        // Previous implementations of Vulkan made a distinction between instance and device specific validation layers.
-        // Backwards compatibility with older implementations of Vulkan.
+        // Previous implementations of Vulkan made a distinction between instance and device
+        // specific validation layers. Backwards compatibility with older implementations of Vulkan.
         if (ENABLE_VALIDATION_LAYERS) {
-            logical_device_create_info.enabledLayerCount = static_cast<uint32_t>(m_validation_layers.size());
+            logical_device_create_info.enabledLayerCount =
+                static_cast<uint32_t>(m_validation_layers.size());
             logical_device_create_info.ppEnabledLayerNames = m_validation_layers.data();
         } else {
             logical_device_create_info.enabledLayerCount = 0;
             logical_device_create_info.ppEnabledLayerNames = nullptr;
         }
 
-        if (vkCreateDevice(m_physical_device, &logical_device_create_info, nullptr, &m_logical_device) != VK_SUCCESS) {
-            throw std::runtime_error("TriangleApplication::create_logical_device => failed to create logical device!");
+        if (vkCreateDevice(m_physical_device, &logical_device_create_info, nullptr,
+                           &m_logical_device) != VK_SUCCESS) {
+            throw std::runtime_error(
+                "TriangleApplication::create_logical_device => failed to create logical device!");
         }
 
-        vkGetDeviceQueue(m_logical_device, queue_family_indices.graphics_family.value(), 0, &m_graphics_queue);
+        vkGetDeviceQueue(m_logical_device, queue_family_indices.graphics_family.value(), 0,
+                         &m_graphics_queue);
     }
 };
 
