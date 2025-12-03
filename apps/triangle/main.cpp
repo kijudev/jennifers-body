@@ -24,6 +24,13 @@ class QueueFamilyGroup {
     bool is_complete() { return graphics_family.has_value() && presentation_family.has_value(); }
 };
 
+class SwapChainSupportDetails {
+   public:
+    VkSurfaceCapabilitiesKHR        capabilities;
+    std::vector<VkSurfaceFormatKHR> formats;
+    std::vector<VkPresentModeKHR>   present_modes;
+};
+
 class TriangleApplication {
    private:
     static constexpr uint32_t WINDOW_WIDTH  = 800;
@@ -45,6 +52,7 @@ class TriangleApplication {
     VkQueue                  m_presentation_queue = VK_NULL_HANDLE;
 
     const std::vector<const char*> m_validation_layers = {"VK_LAYER_KHRONOS_validation"};
+    const std::vector<const char*> m_device_extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
    public:
     void run() {
@@ -351,7 +359,28 @@ class TriangleApplication {
 
     bool is_physical_device_suitable(VkPhysicalDevice device) {
         QueueFamilyGroup group = find_queue_familiy_group(device);
-        return group.is_complete();
+
+        bool are_extensions_supported = check_physical_device_extension_support(device);
+
+        return group.is_complete() && are_extensions_supported;
+    }
+
+    bool check_physical_device_extension_support(VkPhysicalDevice device) {
+        uint32_t extension_count;
+        vkEnumerateDeviceExtensionProperties(device, nullptr, &extension_count, nullptr);
+
+        std::vector<VkExtensionProperties> available_extensions(extension_count);
+        vkEnumerateDeviceExtensionProperties(device, nullptr, &extension_count,
+                                             available_extensions.data());
+
+        std::set<std::string> required_extensions(m_device_extensions.begin(),
+                                                  m_device_extensions.end());
+
+        for (const auto& extension : available_extensions) {
+            required_extensions.erase(extension.extensionName);
+        }
+
+        return required_extensions.empty();
     }
 
     QueueFamilyGroup find_queue_familiy_group(VkPhysicalDevice device) {
@@ -390,9 +419,8 @@ class TriangleApplication {
         QueueFamilyGroup queue_family_group = find_queue_familiy_group(m_physical_device);
 
         std::vector<VkDeviceQueueCreateInfo> queue_create_infos{};
-        std::set<uint32_t>                   unique_queue_families = {
-            queue_family_group.graphics_family.value(),
-            queue_family_group.presentation_family.value()};
+        std::set<uint32_t> unique_queue_families = {queue_family_group.graphics_family.value(),
+                                                    queue_family_group.presentation_family.value()};
 
         float queue_priority = 1.0f;
 
@@ -407,11 +435,15 @@ class TriangleApplication {
 
         VkPhysicalDeviceFeatures physical_device_features = {};
 
-        VkDeviceCreateInfo logical_device_create_info   = {};
-        logical_device_create_info.sType                = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-        logical_device_create_info.queueCreateInfoCount = static_cast<uint32_t>(queue_create_infos.size());
-        logical_device_create_info.pQueueCreateInfos    = queue_create_infos.data();
-        logical_device_create_info.pEnabledFeatures     = &physical_device_features;
+        VkDeviceCreateInfo logical_device_create_info = {};
+        logical_device_create_info.sType              = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        logical_device_create_info.queueCreateInfoCount =
+            static_cast<uint32_t>(queue_create_infos.size());
+        logical_device_create_info.pQueueCreateInfos = queue_create_infos.data();
+        logical_device_create_info.pEnabledFeatures  = &physical_device_features;
+        logical_device_create_info.enabledExtensionCount =
+            static_cast<uint32_t>(m_device_extensions.size());
+        logical_device_create_info.ppEnabledExtensionNames = m_device_extensions.data();
 
         // Previous implementations of Vulkan made a distinction between instance and device
         // specific validation layers. Backwards compatibility with older implementations of Vulkan.
