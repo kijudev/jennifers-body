@@ -1,3 +1,5 @@
+#include <set>
+#define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <vulkan/vk_platform.h>
 #include <vulkan/vulkan.h>
@@ -14,16 +16,17 @@
 #include <utility>
 #include <vector>
 
-class QueueFamilyIndices {
+class QueueFamilyGroup {
    public:
     std::optional<uint32_t> graphics_family;
+    std::optional<uint32_t> presentation_family;
 
-    bool is_complete() { return graphics_family.has_value(); }
+    bool is_complete() { return graphics_family.has_value() && presentation_family.has_value(); }
 };
 
 class TriangleApplication {
    private:
-    static constexpr uint32_t WINDOW_WIDTH = 800;
+    static constexpr uint32_t WINDOW_WIDTH  = 800;
     static constexpr uint32_t WINDOW_HEIGHT = 600;
 
 #ifdef NDEBUG
@@ -32,12 +35,14 @@ class TriangleApplication {
     static constexpr bool ENABLE_VALIDATION_LAYERS = true;
 #endif
 
-    GLFWwindow* mptr_window = nullptr;
-    VkInstance m_instance = VK_NULL_HANDLE;
-    VkDebugUtilsMessengerEXT m_debug_messenger = VK_NULL_HANDLE;
-    VkPhysicalDevice m_physical_device = VK_NULL_HANDLE;
-    VkDevice m_logical_device = VK_NULL_HANDLE;
-    VkQueue m_graphics_queue = VK_NULL_HANDLE;
+    GLFWwindow*              m_window             = nullptr;
+    VkInstance               m_instance           = VK_NULL_HANDLE;
+    VkDebugUtilsMessengerEXT m_debug_messenger    = VK_NULL_HANDLE;
+    VkSurfaceKHR             m_surface            = VK_NULL_HANDLE;
+    VkPhysicalDevice         m_physical_device    = VK_NULL_HANDLE;
+    VkDevice                 m_logical_device     = VK_NULL_HANDLE;
+    VkQueue                  m_graphics_queue     = VK_NULL_HANDLE;
+    VkQueue                  m_presentation_queue = VK_NULL_HANDLE;
 
     const std::vector<const char*> m_validation_layers = {"VK_LAYER_KHRONOS_validation"};
 
@@ -60,10 +65,11 @@ class TriangleApplication {
             proxy_destroy_debug_utils_messenger_ext(m_instance, m_debug_messenger, nullptr);
         }
 
+        vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
         vkDestroyDevice(m_logical_device, nullptr);
         vkDestroyInstance(m_instance, nullptr);
 
-        glfwDestroyWindow(mptr_window);
+        glfwDestroyWindow(m_window);
         glfwTerminate();
     }
 
@@ -79,8 +85,8 @@ class TriangleApplication {
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-        mptr_window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "triangle", nullptr, nullptr);
-        if (!mptr_window) {
+        m_window = glfwCreateWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "triangle", nullptr, nullptr);
+        if (!m_window) {
             glfwTerminate();
             throw std::runtime_error(
                 "TriangleApplication::init_window => Failed to create GLFW window");
@@ -91,12 +97,13 @@ class TriangleApplication {
         create_instance();
         check_extension_support();
         setup_debug_messenger();
+        create_surface();
         pick_physical_device();
         create_logical_device();
     }
 
     void main_loop() {
-        while (!glfwWindowShouldClose(mptr_window)) {
+        while (!glfwWindowShouldClose(m_window)) {
             glfwPollEvents();
         }
     }
@@ -133,7 +140,7 @@ class TriangleApplication {
             instance_create_info.pNext = &debug_messenger_info;
         } else {
             instance_create_info.enabledLayerCount = 0;
-            instance_create_info.pNext = nullptr;
+            instance_create_info.pNext             = nullptr;
         }
 
         VkResult instance_result = vkCreateInstance(&instance_create_info, nullptr, &m_instance);
@@ -145,17 +152,17 @@ class TriangleApplication {
     }
 
     void populate_application_info(VkApplicationInfo& info) {
-        info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-        info.pApplicationName = "triangle";
+        info.sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+        info.pApplicationName   = "triangle";
         info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-        info.pEngineName = "no_engine";
-        info.engineVersion = VK_MAKE_VERSION(1, 0, 0);
-        info.apiVersion = VK_API_VERSION_1_0;
+        info.pEngineName        = "no_engine";
+        info.engineVersion      = VK_MAKE_VERSION(1, 0, 0);
+        info.apiVersion         = VK_API_VERSION_1_0;
     }
 
     void populate_instance_create_info(VkInstanceCreateInfo& create_info,
-                                       VkApplicationInfo* application_info) {
-        create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+                                       VkApplicationInfo*    application_info) {
+        create_info.sType            = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
         create_info.pApplicationInfo = application_info;
     }
 
@@ -187,7 +194,7 @@ class TriangleApplication {
                                   VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
 
         create_info.pfnUserCallback = debug_callback;
-        create_info.pUserData = nullptr;
+        create_info.pUserData       = nullptr;
     }
 
     void check_extension_support() {
@@ -229,7 +236,7 @@ class TriangleApplication {
     }
 
     std::vector<const char*> get_required_extensions() {
-        uint32_t glfw_extion_count = 0;
+        uint32_t     glfw_extion_count = 0;
         const char** glfw_extensions;
 
         glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extion_count);
@@ -246,8 +253,8 @@ class TriangleApplication {
 
     // Returns true if the debug message is to aborted
     static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
-        VkDebugUtilsMessageSeverityFlagBitsEXT message_severity,
-        VkDebugUtilsMessageTypeFlagsEXT message_type,
+        VkDebugUtilsMessageSeverityFlagBitsEXT      message_severity,
+        VkDebugUtilsMessageTypeFlagsEXT             message_type,
         const VkDebugUtilsMessengerCallbackDataEXT* ptr_callback_data, void* ptr_user_data) {
         std::cerr << "Validation layer: " << ptr_callback_data->pMessage
                   << " Severity: " << message_severity << " Type: " << message_type << ptr_user_data
@@ -318,7 +325,7 @@ class TriangleApplication {
 
     uint32_t rate_physical_device(VkPhysicalDevice device) {
         VkPhysicalDeviceProperties properties;
-        VkPhysicalDeviceFeatures features;
+        VkPhysicalDeviceFeatures   features;
 
         vkGetPhysicalDeviceFeatures(device, &features);
         vkGetPhysicalDeviceProperties(device, &properties);
@@ -343,12 +350,12 @@ class TriangleApplication {
     }
 
     bool is_physical_device_suitable(VkPhysicalDevice device) {
-        QueueFamilyIndices indices = find_queue_familiy_indeces(device);
-        return indices.is_complete();
+        QueueFamilyGroup group = find_queue_familiy_group(device);
+        return group.is_complete();
     }
 
-    QueueFamilyIndices find_queue_familiy_indeces(VkPhysicalDevice device) {
-        QueueFamilyIndices indices;
+    QueueFamilyGroup find_queue_familiy_group(VkPhysicalDevice device) {
+        QueueFamilyGroup group{};
 
         uint32_t queue_family_count = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, nullptr);
@@ -360,37 +367,51 @@ class TriangleApplication {
         uint32_t i = 0;
         for (const auto& queue_family : queue_families) {
             if (queue_family.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-                indices.graphics_family = i;
+                group.graphics_family = i;
             }
 
-            if (indices.is_complete()) {
+            VkBool32 has_presentation_support = false;
+            vkGetPhysicalDeviceSurfaceSupportKHR(device, i, m_surface, &has_presentation_support);
+            if (has_presentation_support) {
+                group.presentation_family = i;
+            }
+
+            if (group.is_complete()) {
                 break;
             }
 
             ++i;
         }
 
-        return indices;
+        return group;
     }
 
     void create_logical_device() {
-        QueueFamilyIndices queue_family_indices = find_queue_familiy_indeces(m_physical_device);
+        QueueFamilyGroup queue_family_group = find_queue_familiy_group(m_physical_device);
 
-        VkDeviceQueueCreateInfo queue_create_info = {};
-        queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queue_create_info.queueFamilyIndex = queue_family_indices.graphics_family.value();
-        queue_create_info.queueCount = 1;
+        std::vector<VkDeviceQueueCreateInfo> queue_create_infos{};
+        std::set<uint32_t>                   unique_queue_families = {
+            queue_family_group.graphics_family.value(),
+            queue_family_group.presentation_family.value()};
 
         float queue_priority = 1.0f;
-        queue_create_info.pQueuePriorities = &queue_priority;
+
+        for (const uint32_t queue_family : unique_queue_families) {
+            VkDeviceQueueCreateInfo queue_create_info = {};
+            queue_create_info.sType                   = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+            queue_create_info.queueFamilyIndex        = queue_family;
+            queue_create_info.queueCount              = 1;
+            queue_create_info.pQueuePriorities        = &queue_priority;
+            queue_create_infos.push_back(queue_create_info);
+        }
 
         VkPhysicalDeviceFeatures physical_device_features = {};
 
-        VkDeviceCreateInfo logical_device_create_info = {};
-        logical_device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-        logical_device_create_info.queueCreateInfoCount = 1;
-        logical_device_create_info.pQueueCreateInfos = &queue_create_info;
-        logical_device_create_info.pEnabledFeatures = &physical_device_features;
+        VkDeviceCreateInfo logical_device_create_info   = {};
+        logical_device_create_info.sType                = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        logical_device_create_info.queueCreateInfoCount = static_cast<uint32_t>(queue_create_infos.size());
+        logical_device_create_info.pQueueCreateInfos    = queue_create_infos.data();
+        logical_device_create_info.pEnabledFeatures     = &physical_device_features;
 
         // Previous implementations of Vulkan made a distinction between instance and device
         // specific validation layers. Backwards compatibility with older implementations of Vulkan.
@@ -399,7 +420,7 @@ class TriangleApplication {
                 static_cast<uint32_t>(m_validation_layers.size());
             logical_device_create_info.ppEnabledLayerNames = m_validation_layers.data();
         } else {
-            logical_device_create_info.enabledLayerCount = 0;
+            logical_device_create_info.enabledLayerCount   = 0;
             logical_device_create_info.ppEnabledLayerNames = nullptr;
         }
 
@@ -409,8 +430,17 @@ class TriangleApplication {
                 "TriangleApplication::create_logical_device => failed to create logical device!");
         }
 
-        vkGetDeviceQueue(m_logical_device, queue_family_indices.graphics_family.value(), 0,
+        vkGetDeviceQueue(m_logical_device, queue_family_group.graphics_family.value(), 0,
                          &m_graphics_queue);
+        vkGetDeviceQueue(m_logical_device, queue_family_group.presentation_family.value(), 0,
+                         &m_presentation_queue);
+    }
+
+    void create_surface() {
+        if (glfwCreateWindowSurface(m_instance, m_window, nullptr, &m_surface) != VK_SUCCESS) {
+            throw std::runtime_error(
+                "TriangleApplication::create_surface => failed to create window surface!");
+        }
     }
 };
 
