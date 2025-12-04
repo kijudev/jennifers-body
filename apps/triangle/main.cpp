@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <limits>
 #include <set>
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -50,6 +52,7 @@ class TriangleApplication {
     VkDevice                 m_logical_device     = VK_NULL_HANDLE;
     VkQueue                  m_graphics_queue     = VK_NULL_HANDLE;
     VkQueue                  m_presentation_queue = VK_NULL_HANDLE;
+    VkSwapchainKHR           m_swapchain          = VK_NULL_HANDLE;
 
     const std::vector<const char*> m_validation_layers = {"VK_LAYER_KHRONOS_validation"};
     const std::vector<const char*> m_device_extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
@@ -62,23 +65,12 @@ class TriangleApplication {
     }
 
    private:
+    /* ---- Initialization and lifecycle ---- */
+
     void init() {
         init_glfw();
         init_window();
         init_vulcan();
-    }
-
-    void cleanup() {
-        if (ENABLE_VALIDATION_LAYERS) {
-            proxy_destroy_debug_utils_messenger_ext(m_instance, m_debug_messenger, nullptr);
-        }
-
-        vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
-        vkDestroyDevice(m_logical_device, nullptr);
-        vkDestroyInstance(m_instance, nullptr);
-
-        glfwDestroyWindow(m_window);
-        glfwTerminate();
     }
 
     void init_glfw() {
@@ -115,6 +107,23 @@ class TriangleApplication {
             glfwPollEvents();
         }
     }
+
+    void cleanup() {
+        vkDestroySwapchainKHR(m_logical_device, m_swapchain, nullptr);
+        vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
+        vkDestroyDevice(m_logical_device, nullptr);
+
+        if (ENABLE_VALIDATION_LAYERS) {
+            proxy_destroy_debug_utils_messenger_ext(m_instance, m_debug_messenger, nullptr);
+        }
+
+        vkDestroyInstance(m_instance, nullptr);
+
+        glfwDestroyWindow(m_window);
+        glfwTerminate();
+    }
+
+    /* ---- Instance creation and validation layer helpers ---- */
 
     // Creates a vulkan instance
     // Creates vulcan create info
@@ -159,6 +168,58 @@ class TriangleApplication {
         }
     }
 
+    void create_swap_chain() {
+        SwapChainSupportDetails swap_chain_support_details =
+            query_swap_chain_support_details(m_physical_device);
+
+        VkSurfaceFormatKHR surface_format =
+            choose_swap_chain_surface_format(swap_chain_support_details.formats);
+        VkPresentModeKHR present_mode =
+            choose_swap_chain_present_mode(swap_chain_support_details.present_modes);
+        VkExtent2D extent = choose_swap_chain_extent(swap_chain_support_details.capabilities);
+
+        uint32_t image_count = swap_chain_support_details.capabilities.minImageCount + 1;
+
+        if (swap_chain_support_details.capabilities.maxImageCount > 0 &&
+            image_count > swap_chain_support_details.capabilities.maxImageCount) {
+            image_count = swap_chain_support_details.capabilities.maxImageCount;
+        }
+
+        VkSwapchainCreateInfoKHR swap_chain_create_info = {};
+        swap_chain_create_info.sType            = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+        swap_chain_create_info.surface          = m_surface;
+        swap_chain_create_info.minImageCount    = image_count;
+        swap_chain_create_info.imageFormat      = surface_format.format;
+        swap_chain_create_info.imageColorSpace  = surface_format.colorSpace;
+        swap_chain_create_info.imageExtent      = extent;
+        swap_chain_create_info.imageArrayLayers = 1;
+        swap_chain_create_info.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+        QueueFamilyGroup queue_family_group    = find_queue_familiy_group(m_physical_device);
+        uint32_t         queue_family_groups[] = {queue_family_group.graphics_family.value(),
+                                                  queue_family_group.presentation_family.value()};
+
+        if (queue_family_group.graphics_family.value() == queue_family_group.presentation_family.value()) {
+            swap_chain_create_info.imageSharingMode  = VK_SHARING_MODE_EXCLUSIVE;
+            swap_chain_create_info.queueFamilyIndexCount = 1;
+            swap_chain_create_info.pQueueFamilyIndices   = &queue_family_group.graphics_family.value();
+        } else {
+            swap_chain_create_info.imageSharingMode  = VK_SHARING_MODE_CONCURRENT;
+            swap_chain_create_info.queueFamilyIndexCount = 2;
+            swap_chain_create_info.pQueueFamilyIndices   = queue_family_groups;
+        }
+
+        swap_chain_create_info.preTransform = swap_chain_support_details.capabilities.currentTransform;
+        swap_chain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+        swap_chain_create_info.presentMode = present_mode;
+        swap_chain_create_info.clipped = VK_TRUE;
+        swap_chain_create_info.oldSwapchain = VK_NULL_HANDLE;
+
+        if (vkCreateSwapchainKHR(m_logical_device, &swap_chain_create_info, nullptr, &m_swapchain) != VK_SUCCESS) {
+            throw std::runtime_error("TriangleApplication::create_swap_chain => failed to create swap chain!");
+        }
+    }
+
     void populate_application_info(VkApplicationInfo& info) {
         info.sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO;
         info.pApplicationName   = "triangle";
@@ -172,37 +233,6 @@ class TriangleApplication {
                                        VkApplicationInfo*    application_info) {
         create_info.sType            = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
         create_info.pApplicationInfo = application_info;
-    }
-
-    void setup_debug_messenger() {
-        if (!ENABLE_VALIDATION_LAYERS) {
-            return;
-        }
-
-        VkDebugUtilsMessengerCreateInfoEXT create_info{};
-        populate_debug_messenger_create_info(create_info);
-
-        if (proxy_create_debug_utils_messenger_ext(m_instance, &create_info, nullptr,
-                                                   &m_debug_messenger) != VK_SUCCESS) {
-            throw std::runtime_error(
-                "TriangleApplication::setup_debug_messenger => failed to set "
-                "up debug messenger.");
-        }
-    }
-
-    void populate_debug_messenger_create_info(VkDebugUtilsMessengerCreateInfoEXT& create_info) {
-        create_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-
-        create_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
-                                      VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                                      VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-
-        create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-                                  VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-                                  VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-
-        create_info.pfnUserCallback = debug_callback;
-        create_info.pUserData       = nullptr;
     }
 
     void check_extension_support() {
@@ -259,6 +289,8 @@ class TriangleApplication {
         return vulkan_extensions;
     }
 
+    /* ---- Debug messenger helpers and proxies ---- */
+
     // Returns true if the debug message is to aborted
     static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
         VkDebugUtilsMessageSeverityFlagBitsEXT      message_severity,
@@ -269,6 +301,37 @@ class TriangleApplication {
                   << std::endl;
 
         return VK_FALSE;
+    }
+
+    void setup_debug_messenger() {
+        if (!ENABLE_VALIDATION_LAYERS) {
+            return;
+        }
+
+        VkDebugUtilsMessengerCreateInfoEXT create_info{};
+        populate_debug_messenger_create_info(create_info);
+
+        if (proxy_create_debug_utils_messenger_ext(m_instance, &create_info, nullptr,
+                                                   &m_debug_messenger) != VK_SUCCESS) {
+            throw std::runtime_error(
+                "TriangleApplication::setup_debug_messenger => failed to set "
+                "up debug messenger.");
+        }
+    }
+
+    void populate_debug_messenger_create_info(VkDebugUtilsMessengerCreateInfoEXT& create_info) {
+        create_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+
+        create_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+                                      VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                                      VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+
+        create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                                  VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                                  VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+
+        create_info.pfnUserCallback = debug_callback;
+        create_info.pUserData       = nullptr;
     }
 
     static VkResult proxy_create_debug_utils_messenger_ext(
@@ -290,6 +353,15 @@ class TriangleApplication {
             instance, "vkDestroyDebugUtilsMessengerEXT");
         if (func != nullptr) {
             func(instance, messenger, ptr_allocator);
+        }
+    }
+
+    /* ---- Surface and device selection ---- */
+
+    void create_surface() {
+        if (glfwCreateWindowSurface(m_instance, m_window, nullptr, &m_surface) != VK_SUCCESS) {
+            throw std::runtime_error(
+                "TriangleApplication::create_surface => failed to create window surface!");
         }
     }
 
@@ -361,8 +433,10 @@ class TriangleApplication {
         QueueFamilyGroup group = find_queue_familiy_group(device);
 
         bool are_extensions_supported = check_physical_device_extension_support(device);
+        bool is_swap_chain_adequate =
+            are_extensions_supported ? check_swap_chain_support(device) : false;
 
-        return group.is_complete() && are_extensions_supported;
+        return group.is_complete() && are_extensions_supported && is_swap_chain_adequate;
     }
 
     bool check_physical_device_extension_support(VkPhysicalDevice device) {
@@ -381,6 +455,11 @@ class TriangleApplication {
         }
 
         return required_extensions.empty();
+    }
+
+    bool check_swap_chain_support(VkPhysicalDevice device) {
+        SwapChainSupportDetails details = query_swap_chain_support_details(device);
+        return !details.formats.empty() && !details.present_modes.empty();
     }
 
     QueueFamilyGroup find_queue_familiy_group(VkPhysicalDevice device) {
@@ -468,10 +547,79 @@ class TriangleApplication {
                          &m_presentation_queue);
     }
 
-    void create_surface() {
-        if (glfwCreateWindowSurface(m_instance, m_window, nullptr, &m_surface) != VK_SUCCESS) {
-            throw std::runtime_error(
-                "TriangleApplication::create_surface => failed to create window surface!");
+    SwapChainSupportDetails query_swap_chain_support_details(VkPhysicalDevice physical_device) {
+        SwapChainSupportDetails details;
+
+        vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, m_surface,
+                                                  &details.capabilities);
+
+        uint32_t format_count;
+        vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, m_surface, &format_count, nullptr);
+
+        if (format_count != 0) {
+            details.formats.resize(format_count);
+            vkGetPhysicalDeviceSurfaceFormatsKHR(physical_device, m_surface, &format_count,
+                                                 details.formats.data());
+        }
+
+        uint32_t present_mode_count;
+        vkGetPhysicalDeviceSurfacePresentModesKHR(physical_device, m_surface, &present_mode_count,
+                                                  nullptr);
+
+        if (present_mode_count != 0) {
+            details.present_modes.resize(present_mode_count);
+            vkGetPhysicalDeviceSurfacePresentModesKHR(
+                physical_device, m_surface, &present_mode_count, details.present_modes.data());
+        }
+
+        return details;
+    }
+
+    VkSurfaceFormatKHR choose_swap_chain_surface_format(
+        const std::vector<VkSurfaceFormatKHR>& formats) {
+        for (const auto& format : formats) {
+            if (format.format == VK_FORMAT_B8G8R8A8_SRGB &&
+                format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+                return format;
+            }
+        }
+
+        if (!formats.empty()) {
+            return formats[0];
+        }
+
+        throw std::runtime_error(
+            "TriangleApplication::choose_swap_chain_surface_format => Failed to find a suitable "
+            "swap chain surface format.");
+    }
+
+    VkPresentModeKHR choose_swap_chain_present_mode(
+        const std::vector<VkPresentModeKHR>& present_modes) {
+        for (const auto& present_mode : present_modes) {
+            if (present_mode == VK_PRESENT_MODE_MAILBOX_KHR) {
+                return present_mode;
+            }
+        }
+
+        return VK_PRESENT_MODE_FIFO_KHR;
+    }
+
+    VkExtent2D choose_swap_chain_extent(const VkSurfaceCapabilitiesKHR& capabilities) {
+        if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
+            return capabilities.currentExtent;
+        } else {
+            int width{};
+            int height{};
+
+            glfwGetFramebufferSize(m_window, &width, &height);
+            VkExtent2D extent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
+
+            extent.width  = std::clamp(extent.width, capabilities.minImageExtent.width,
+                                       capabilities.maxImageExtent.width);
+            extent.height = std::clamp(extent.height, capabilities.minImageExtent.height,
+                                       capabilities.maxImageExtent.height);
+
+            return extent;
         }
     }
 };
