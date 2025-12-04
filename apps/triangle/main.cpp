@@ -18,12 +18,12 @@
 #include <utility>
 #include <vector>
 
-class QueueFamilyGroup {
+class QueueFamilyIndices {
    public:
     std::optional<uint32_t> graphics_family;
-    std::optional<uint32_t> presentation_family;
+    std::optional<uint32_t> present_family;
 
-    bool is_complete() { return graphics_family.has_value() && presentation_family.has_value(); }
+    bool is_complete() { return graphics_family.has_value() && present_family.has_value(); }
 };
 
 class SwapChainSupportDetails {
@@ -77,8 +77,7 @@ class TriangleApplication {
     }
 
     void init_glfw() {
-        int result = glfwInit();
-        if (!result) {
+        if (!glfwInit()) {
             throw std::runtime_error(
                 "TriangleApplication::init_glfw => Failed to initialize GLFW.");
         }
@@ -139,110 +138,115 @@ class TriangleApplication {
         }
 
         VkApplicationInfo application_info{};
-        populate_application_info(application_info);
+        application_info.sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+        application_info.pApplicationName   = "triangle";
+        application_info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
+        application_info.pEngineName        = "no_engine";
+        application_info.engineVersion      = VK_MAKE_VERSION(1, 0, 0);
+        application_info.apiVersion         = VK_API_VERSION_1_0;
 
-        VkInstanceCreateInfo instance_create_info{};
-        populate_instance_create_info(instance_create_info, &application_info);
+        VkInstanceCreateInfo application_create_info{};
+        application_create_info.sType            = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+        application_create_info.pApplicationInfo = &application_info;
 
         std::vector<const char*> required_extensions = get_required_extensions();
 
-        instance_create_info.enabledExtensionCount =
+        application_create_info.enabledExtensionCount =
             static_cast<uint32_t>(required_extensions.size());
-        instance_create_info.ppEnabledExtensionNames = required_extensions.data();
+        application_create_info.ppEnabledExtensionNames = required_extensions.data();
 
-        VkDebugUtilsMessengerCreateInfoEXT debug_messenger_info{};
+        VkDebugUtilsMessengerCreateInfoEXT debug_messenger_create_info{};
         if (ENABLE_VALIDATION_LAYERS) {
-            instance_create_info.enabledLayerCount =
+            application_create_info.enabledLayerCount =
                 static_cast<uint32_t>(m_validation_layers.size());
-            instance_create_info.ppEnabledLayerNames = m_validation_layers.data();
+            application_create_info.ppEnabledLayerNames = m_validation_layers.data();
 
-            populate_debug_messenger_create_info(debug_messenger_info);
-            instance_create_info.pNext = &debug_messenger_info;
+            debug_messenger_create_info.sType =
+                VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+            debug_messenger_create_info.messageSeverity =
+                VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+                VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+            debug_messenger_create_info.messageType =
+                VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+            debug_messenger_create_info.pfnUserCallback = debug_callback;
+            debug_messenger_create_info.pUserData       = nullptr;
+            application_create_info.pNext               = &debug_messenger_create_info;
         } else {
-            instance_create_info.enabledLayerCount = 0;
-            instance_create_info.pNext             = nullptr;
+            application_create_info.enabledLayerCount = 0;
+            application_create_info.pNext             = nullptr;
         }
 
-        VkResult instance_result = vkCreateInstance(&instance_create_info, nullptr, &m_instance);
-        if (instance_result != VK_SUCCESS) {
+        if (vkCreateInstance(&application_create_info, nullptr, &m_instance) != VK_SUCCESS) {
             throw std::runtime_error(
                 "TriangleApplication::create_instance => Failed to create a "
                 "Vulkan instance.");
         }
     }
 
-    void create_swap_chain() {
-        SwapChainSupportDetails swap_chain_support_details =
-            query_swap_chain_support_details(m_physical_device);
+    void create_swapchain() {
+        SwapChainSupportDetails support_details =
+            query_swapchain_support_details(m_physical_device);
 
         VkSurfaceFormatKHR surface_format =
-            choose_swap_chain_surface_format(swap_chain_support_details.formats);
+            choose_swapchain_surface_format(support_details.formats);
         VkPresentModeKHR present_mode =
-            choose_swap_chain_present_mode(swap_chain_support_details.present_modes);
-        VkExtent2D extent = choose_swap_chain_extent(swap_chain_support_details.capabilities);
+            choose_swapchain_present_mode(support_details.present_modes);
+        VkExtent2D extent = choose_swapchain_extent(support_details.capabilities);
 
-        uint32_t image_count = swap_chain_support_details.capabilities.minImageCount + 1;
+        uint32_t image_count = support_details.capabilities.minImageCount + 1;
 
-        if (swap_chain_support_details.capabilities.maxImageCount > 0 &&
-            image_count > swap_chain_support_details.capabilities.maxImageCount) {
-            image_count = swap_chain_support_details.capabilities.maxImageCount;
+        if (support_details.capabilities.maxImageCount > 0 &&
+            image_count > support_details.capabilities.maxImageCount) {
+            image_count = support_details.capabilities.maxImageCount;
         }
 
-        VkSwapchainCreateInfoKHR swap_chain_create_info = {};
-        swap_chain_create_info.sType            = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
-        swap_chain_create_info.surface          = m_surface;
-        swap_chain_create_info.minImageCount    = image_count;
-        swap_chain_create_info.imageFormat      = surface_format.format;
-        swap_chain_create_info.imageColorSpace  = surface_format.colorSpace;
-        swap_chain_create_info.imageExtent      = extent;
-        swap_chain_create_info.imageArrayLayers = 1;
-        swap_chain_create_info.imageUsage       = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+        VkSwapchainCreateInfoKHR create_info = {};
+        create_info.sType                    = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+        create_info.surface                  = m_surface;
+        create_info.minImageCount            = image_count;
+        create_info.imageFormat              = surface_format.format;
+        create_info.imageColorSpace          = surface_format.colorSpace;
+        create_info.imageExtent              = extent;
+        create_info.imageArrayLayers         = 1;
+        create_info.imageUsage               = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
-        QueueFamilyGroup queue_family_group    = find_queue_familiy_group(m_physical_device);
-        uint32_t         queue_family_groups[] = {queue_family_group.graphics_family.value(),
-                                                  queue_family_group.presentation_family.value()};
+        QueueFamilyIndices queue_family_indices = find_queue_familiy_indices(m_physical_device);
+        uint32_t queue_family_indices_array[]   = {queue_family_indices.graphics_family.value(),
+                                                   queue_family_indices.present_family.value()};
 
-        if (queue_family_group.graphics_family.value() == queue_family_group.presentation_family.value()) {
-            swap_chain_create_info.imageSharingMode  = VK_SHARING_MODE_EXCLUSIVE;
-            swap_chain_create_info.queueFamilyIndexCount = 1;
-            swap_chain_create_info.pQueueFamilyIndices   = &queue_family_group.graphics_family.value();
+        if (queue_family_indices.graphics_family.value() ==
+            queue_family_indices.present_family.value()) {
+            create_info.imageSharingMode      = VK_SHARING_MODE_EXCLUSIVE;
+            create_info.queueFamilyIndexCount = 1;
+            create_info.pQueueFamilyIndices   = &queue_family_indices.graphics_family.value();
         } else {
-            swap_chain_create_info.imageSharingMode  = VK_SHARING_MODE_CONCURRENT;
-            swap_chain_create_info.queueFamilyIndexCount = 2;
-            swap_chain_create_info.pQueueFamilyIndices   = queue_family_groups;
+            create_info.imageSharingMode      = VK_SHARING_MODE_CONCURRENT;
+            create_info.queueFamilyIndexCount = 2;
+            create_info.pQueueFamilyIndices   = queue_family_indices_array;
         }
 
-        swap_chain_create_info.preTransform = swap_chain_support_details.capabilities.currentTransform;
-        swap_chain_create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
-        swap_chain_create_info.presentMode = present_mode;
-        swap_chain_create_info.clipped = VK_TRUE;
-        swap_chain_create_info.oldSwapchain = VK_NULL_HANDLE;
+        create_info.preTransform   = support_details.capabilities.currentTransform;
+        create_info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+        create_info.presentMode    = present_mode;
+        create_info.clipped        = VK_TRUE;
+        create_info.oldSwapchain   = VK_NULL_HANDLE;
 
-        if (vkCreateSwapchainKHR(m_logical_device, &swap_chain_create_info, nullptr, &m_swapchain) != VK_SUCCESS) {
-            throw std::runtime_error("TriangleApplication::create_swap_chain => failed to create swap chain!");
+        if (vkCreateSwapchainKHR(m_logical_device, &create_info, nullptr, &m_swapchain) !=
+            VK_SUCCESS) {
+            throw std::runtime_error(
+                "TriangleApplication::create_swap_chain => failed to create swap chain!");
         }
 
         vkGetSwapchainImagesKHR(m_logical_device, m_swapchain, &image_count, nullptr);
         m_swapchain_images.resize(image_count);
-        vkGetSwapchainImagesKHR(m_logical_device, m_swapchain, &image_count, m_swapchain_images.data());
+        vkGetSwapchainImagesKHR(m_logical_device, m_swapchain, &image_count,
+                                m_swapchain_images.data());
 
         m_swapchain_format = surface_format.format;
         m_swapchain_extent = extent;
-    }
-
-    void populate_application_info(VkApplicationInfo& info) {
-        info.sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-        info.pApplicationName   = "triangle";
-        info.applicationVersion = VK_MAKE_VERSION(1, 0, 0);
-        info.pEngineName        = "no_engine";
-        info.engineVersion      = VK_MAKE_VERSION(1, 0, 0);
-        info.apiVersion         = VK_API_VERSION_1_0;
-    }
-
-    void populate_instance_create_info(VkInstanceCreateInfo& create_info,
-                                       VkApplicationInfo*    application_info) {
-        create_info.sType            = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-        create_info.pApplicationInfo = application_info;
     }
 
     void check_extension_support() {
@@ -319,7 +323,15 @@ class TriangleApplication {
         }
 
         VkDebugUtilsMessengerCreateInfoEXT create_info{};
-        populate_debug_messenger_create_info(create_info);
+        create_info.sType           = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+        create_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
+                                      VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
+                                      VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+        create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
+                                  VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
+                                  VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
+        create_info.pfnUserCallback = debug_callback;
+        create_info.pUserData       = nullptr;
 
         if (proxy_create_debug_utils_messenger_ext(m_instance, &create_info, nullptr,
                                                    &m_debug_messenger) != VK_SUCCESS) {
@@ -327,21 +339,6 @@ class TriangleApplication {
                 "TriangleApplication::setup_debug_messenger => failed to set "
                 "up debug messenger.");
         }
-    }
-
-    void populate_debug_messenger_create_info(VkDebugUtilsMessengerCreateInfoEXT& create_info) {
-        create_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
-
-        create_info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT |
-                                      VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                                      VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-
-        create_info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
-                                  VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT |
-                                  VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
-
-        create_info.pfnUserCallback = debug_callback;
-        create_info.pUserData       = nullptr;
     }
 
     static VkResult proxy_create_debug_utils_messenger_ext(
@@ -365,8 +362,6 @@ class TriangleApplication {
             func(instance, messenger, ptr_allocator);
         }
     }
-
-    /* ---- Surface and device selection ---- */
 
     void create_surface() {
         if (glfwCreateWindowSurface(m_instance, m_window, nullptr, &m_surface) != VK_SUCCESS) {
@@ -440,13 +435,14 @@ class TriangleApplication {
     }
 
     bool is_physical_device_suitable(VkPhysicalDevice device) {
-        QueueFamilyGroup group = find_queue_familiy_group(device);
+        QueueFamilyIndices queue_family_indices = find_queue_familiy_indices(device);
 
         bool are_extensions_supported = check_physical_device_extension_support(device);
         bool is_swap_chain_adequate =
-            are_extensions_supported ? check_swap_chain_support(device) : false;
+            are_extensions_supported ? check_swapchain_support(device) : false;
 
-        return group.is_complete() && are_extensions_supported && is_swap_chain_adequate;
+        return queue_family_indices.is_complete() && are_extensions_supported &&
+               is_swap_chain_adequate;
     }
 
     bool check_physical_device_extension_support(VkPhysicalDevice device) {
@@ -467,49 +463,50 @@ class TriangleApplication {
         return required_extensions.empty();
     }
 
-    bool check_swap_chain_support(VkPhysicalDevice device) {
-        SwapChainSupportDetails details = query_swap_chain_support_details(device);
+    bool check_swapchain_support(VkPhysicalDevice physical_device) {
+        SwapChainSupportDetails details = query_swapchain_support_details(physical_device);
         return !details.formats.empty() && !details.present_modes.empty();
     }
 
-    QueueFamilyGroup find_queue_familiy_group(VkPhysicalDevice device) {
-        QueueFamilyGroup group{};
+    QueueFamilyIndices find_queue_familiy_indices(VkPhysicalDevice physical_device) {
+        QueueFamilyIndices queue_family_indices{};
 
         uint32_t queue_family_count = 0;
-        vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, nullptr);
+        vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count, nullptr);
 
         std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
-        vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count,
+        vkGetPhysicalDeviceQueueFamilyProperties(physical_device, &queue_family_count,
                                                  queue_families.data());
 
         uint32_t i = 0;
         for (const auto& queue_family : queue_families) {
             if (queue_family.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
-                group.graphics_family = i;
+                queue_family_indices.graphics_family = i;
             }
 
             VkBool32 has_presentation_support = false;
-            vkGetPhysicalDeviceSurfaceSupportKHR(device, i, m_surface, &has_presentation_support);
+            vkGetPhysicalDeviceSurfaceSupportKHR(physical_device, i, m_surface,
+                                                 &has_presentation_support);
             if (has_presentation_support) {
-                group.presentation_family = i;
+                queue_family_indices.present_family = i;
             }
 
-            if (group.is_complete()) {
+            if (queue_family_indices.is_complete()) {
                 break;
             }
 
             ++i;
         }
 
-        return group;
+        return queue_family_indices;
     }
 
     void create_logical_device() {
-        QueueFamilyGroup queue_family_group = find_queue_familiy_group(m_physical_device);
+        QueueFamilyIndices queue_family_indices = find_queue_familiy_indices(m_physical_device);
 
         std::vector<VkDeviceQueueCreateInfo> queue_create_infos{};
-        std::set<uint32_t> unique_queue_families = {queue_family_group.graphics_family.value(),
-                                                    queue_family_group.presentation_family.value()};
+        std::set<uint32_t> unique_queue_families = {queue_family_indices.graphics_family.value(),
+                                                    queue_family_indices.present_family.value()};
 
         float queue_priority = 1.0f;
 
@@ -551,13 +548,13 @@ class TriangleApplication {
                 "TriangleApplication::create_logical_device => failed to create logical device!");
         }
 
-        vkGetDeviceQueue(m_logical_device, queue_family_group.graphics_family.value(), 0,
+        vkGetDeviceQueue(m_logical_device, queue_family_indices.graphics_family.value(), 0,
                          &m_graphics_queue);
-        vkGetDeviceQueue(m_logical_device, queue_family_group.presentation_family.value(), 0,
+        vkGetDeviceQueue(m_logical_device, queue_family_indices.present_family.value(), 0,
                          &m_presentation_queue);
     }
 
-    SwapChainSupportDetails query_swap_chain_support_details(VkPhysicalDevice physical_device) {
+    SwapChainSupportDetails query_swapchain_support_details(VkPhysicalDevice physical_device) {
         SwapChainSupportDetails details;
 
         vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical_device, m_surface,
@@ -585,7 +582,7 @@ class TriangleApplication {
         return details;
     }
 
-    VkSurfaceFormatKHR choose_swap_chain_surface_format(
+    VkSurfaceFormatKHR choose_swapchain_surface_format(
         const std::vector<VkSurfaceFormatKHR>& formats) {
         for (const auto& format : formats) {
             if (format.format == VK_FORMAT_B8G8R8A8_SRGB &&
@@ -603,7 +600,7 @@ class TriangleApplication {
             "swap chain surface format.");
     }
 
-    VkPresentModeKHR choose_swap_chain_present_mode(
+    VkPresentModeKHR choose_swapchain_present_mode(
         const std::vector<VkPresentModeKHR>& present_modes) {
         for (const auto& present_mode : present_modes) {
             if (present_mode == VK_PRESENT_MODE_MAILBOX_KHR) {
@@ -614,7 +611,7 @@ class TriangleApplication {
         return VK_PRESENT_MODE_FIFO_KHR;
     }
 
-    VkExtent2D choose_swap_chain_extent(const VkSurfaceCapabilitiesKHR& capabilities) {
+    VkExtent2D choose_swapchain_extent(const VkSurfaceCapabilitiesKHR& capabilities) {
         if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
             return capabilities.currentExtent;
         } else {
