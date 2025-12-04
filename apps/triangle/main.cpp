@@ -53,6 +53,9 @@ class TriangleApplication {
     VkQueue                  m_graphics_queue     = VK_NULL_HANDLE;
     VkQueue                  m_presentation_queue = VK_NULL_HANDLE;
     VkSwapchainKHR           m_swapchain          = VK_NULL_HANDLE;
+    std::vector<VkImage>     m_swapchain_images   = {};
+    VkFormat                 m_swapchain_format   = VK_FORMAT_UNDEFINED;
+    VkExtent2D               m_swapchain_extent   = {};
 
     const std::vector<const char*> m_validation_layers = {"VK_LAYER_KHRONOS_validation"};
     const std::vector<const char*> m_device_extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
@@ -218,6 +221,13 @@ class TriangleApplication {
         if (vkCreateSwapchainKHR(m_logical_device, &swap_chain_create_info, nullptr, &m_swapchain) != VK_SUCCESS) {
             throw std::runtime_error("TriangleApplication::create_swap_chain => failed to create swap chain!");
         }
+
+        vkGetSwapchainImagesKHR(m_logical_device, m_swapchain, &image_count, nullptr);
+        m_swapchain_images.resize(image_count);
+        vkGetSwapchainImagesKHR(m_logical_device, m_swapchain, &image_count, m_swapchain_images.data());
+
+        m_swapchain_format = surface_format.format;
+        m_swapchain_extent = extent;
     }
 
     void populate_application_info(VkApplicationInfo& info) {
