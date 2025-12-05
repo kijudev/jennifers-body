@@ -44,18 +44,19 @@ class TriangleApplication {
     static constexpr bool ENABLE_VALIDATION_LAYERS = true;
 #endif
 
-    GLFWwindow*              m_window             = nullptr;
-    VkInstance               m_instance           = VK_NULL_HANDLE;
-    VkDebugUtilsMessengerEXT m_debug_messenger    = VK_NULL_HANDLE;
-    VkSurfaceKHR             m_surface            = VK_NULL_HANDLE;
-    VkPhysicalDevice         m_physical_device    = VK_NULL_HANDLE;
-    VkDevice                 m_logical_device     = VK_NULL_HANDLE;
-    VkQueue                  m_graphics_queue     = VK_NULL_HANDLE;
-    VkQueue                  m_presentation_queue = VK_NULL_HANDLE;
-    VkSwapchainKHR           m_swapchain          = VK_NULL_HANDLE;
-    std::vector<VkImage>     m_swapchain_images   = {};
-    VkFormat                 m_swapchain_format   = VK_FORMAT_UNDEFINED;
-    VkExtent2D               m_swapchain_extent   = {};
+    GLFWwindow*              m_window                = nullptr;
+    VkInstance               m_instance              = VK_NULL_HANDLE;
+    VkDebugUtilsMessengerEXT m_debug_messenger       = VK_NULL_HANDLE;
+    VkSurfaceKHR             m_surface               = VK_NULL_HANDLE;
+    VkPhysicalDevice         m_physical_device       = VK_NULL_HANDLE;
+    VkDevice                 m_logical_device        = VK_NULL_HANDLE;
+    VkQueue                  m_graphics_queue        = VK_NULL_HANDLE;
+    VkQueue                  m_presentation_queue    = VK_NULL_HANDLE;
+    VkSwapchainKHR           m_swapchain             = VK_NULL_HANDLE;
+    std::vector<VkImage>     m_swapchain_images      = {};
+    VkFormat                 m_swapchain_format      = VK_FORMAT_UNDEFINED;
+    VkExtent2D               m_swapchain_extent      = {};
+    std::vector<VkImageView> m_swapchain_image_views = {};
 
     const std::vector<const char*> m_validation_layers = {"VK_LAYER_KHRONOS_validation"};
     const std::vector<const char*> m_device_extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
@@ -111,6 +112,10 @@ class TriangleApplication {
     }
 
     void cleanup() {
+        for (auto image_view : m_swapchain_image_views) {
+            vkDestroyImageView(m_logical_device, image_view, nullptr);
+        }
+
         vkDestroySwapchainKHR(m_logical_device, m_swapchain, nullptr);
         vkDestroySurfaceKHR(m_instance, m_surface, nullptr);
         vkDestroyDevice(m_logical_device, nullptr);
@@ -628,6 +633,32 @@ class TriangleApplication {
 
             return extent;
         }
+    }
+
+    void create_image_views() {
+        m_swapchain_image_views.resize(m_swapchain_images.size());
+
+        for (size_t i = 0; i < m_swapchain_image_views.size(); ++i) {
+            VkImageViewCreateInfo create_info           = {};
+            create_info.sType                           = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+            create_info.image                           = m_swapchain_images[i];
+            create_info.viewType                        = VK_IMAGE_VIEW_TYPE_2D;
+            create_info.format                          = m_swapchain_format;
+            create_info.components.r                    = VK_COMPONENT_SWIZZLE_IDENTITY;
+            create_info.components.g                    = VK_COMPONENT_SWIZZLE_IDENTITY;
+            create_info.components.b                    = VK_COMPONENT_SWIZZLE_IDENTITY;
+            create_info.components.a                    = VK_COMPONENT_SWIZZLE_IDENTITY;
+            create_info.subresourceRange.aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT;
+            create_info.subresourceRange.baseMipLevel   = 0;
+            create_info.subresourceRange.levelCount     = 1;
+            create_info.subresourceRange.baseArrayLayer = 0;
+            create_info.subresourceRange.layerCount     = 1;
+
+            if (vkCreateImageView(m_logical_device, &create_info, nullptr, &m_swapchain_image_views[i]) != VK_SUCCESS) {
+                throw std::runtime_error("failed to create image views!");
+            }
+        }
+
     }
 };
 
