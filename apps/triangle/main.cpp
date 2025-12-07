@@ -62,6 +62,7 @@ class TriangleApplication {
     VkFormat                 m_swapchain_format      = VK_FORMAT_UNDEFINED;
     VkExtent2D               m_swapchain_extent      = {};
     std::vector<VkImageView> m_swapchain_image_views = {};
+    VkPipelineLayout         m_pipeline_layout       = VK_NULL_HANDLE;
 
     const std::vector<const char*> m_validation_layers = {"VK_LAYER_KHRONOS_validation"};
     const std::vector<const char*> m_device_extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
@@ -118,6 +119,8 @@ class TriangleApplication {
     }
 
     void cleanup() {
+        vkDestroyPipelineLayout(m_logical_device, m_pipeline_layout, nullptr);
+
         for (auto image_view : m_swapchain_image_views) {
             vkDestroyImageView(m_logical_device, image_view, nullptr);
         }
@@ -675,25 +678,134 @@ class TriangleApplication {
         VkShaderModule frag_shader_module = create_shader_module(frag_shader_code);
 
         VkPipelineShaderStageCreateInfo vert_shader_stage_info{};
-        vert_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        vert_shader_stage_info.stage = VK_SHADER_STAGE_VERTEX_BIT;
+        vert_shader_stage_info.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        vert_shader_stage_info.stage  = VK_SHADER_STAGE_VERTEX_BIT;
         vert_shader_stage_info.module = vert_shader_module;
-        vert_shader_stage_info.pName = "main";
+        vert_shader_stage_info.pName  = "main";
 
         VkPipelineShaderStageCreateInfo frag_shader_stage_info{};
-        frag_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        frag_shader_stage_info.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        frag_shader_stage_info.sType  = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        frag_shader_stage_info.stage  = VK_SHADER_STAGE_FRAGMENT_BIT;
         frag_shader_stage_info.module = frag_shader_module;
-        frag_shader_stage_info.pName = "main";
+        frag_shader_stage_info.pName  = "main";
 
-        std::array<VkPipelineShaderStageCreateInfo, 2> shader_stages = {
-            vert_shader_stage_info,
-            frag_shader_stage_info
-        };
+        std::array<VkPipelineShaderStageCreateInfo, 2> shader_stages = {vert_shader_stage_info,
+                                                                        frag_shader_stage_info};
+
+        VkPipelineVertexInputStateCreateInfo vertex_input_info{};
+        vertex_input_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+        vertex_input_info.vertexBindingDescriptionCount   = 0;
+        vertex_input_info.pVertexBindingDescriptions      = nullptr;
+        vertex_input_info.vertexAttributeDescriptionCount = 0;
+        vertex_input_info.pVertexAttributeDescriptions    = nullptr;
+
+        VkPipelineInputAssemblyStateCreateInfo input_assembly_info{};
+        input_assembly_info.sType    = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        input_assembly_info.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        input_assembly_info.primitiveRestartEnable = VK_FALSE;
+
+        VkViewport viewport{};
+        viewport.x        = 0.0f;
+        viewport.y        = 0.0f;
+        viewport.width    = static_cast<float>(m_swapchain_extent.width);
+        viewport.height   = static_cast<float>(m_swapchain_extent.height);
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+
+        VkRect2D scissor{};
+        scissor.offset = {0, 0};
+        scissor.extent = m_swapchain_extent;
+
+        std::vector<VkDynamicState> dynamic_states = {VK_DYNAMIC_STATE_VIEWPORT,
+                                                      VK_DYNAMIC_STATE_SCISSOR};
+
+        VkPipelineDynamicStateCreateInfo dynamic_state_info{};
+        dynamic_state_info.sType             = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+        dynamic_state_info.dynamicStateCount = static_cast<uint32_t>(dynamic_states.size());
+        dynamic_state_info.pDynamicStates    = dynamic_states.data();
+
+        VkPipelineViewportStateCreateInfo viewport_state_info{};
+        viewport_state_info.sType         = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+        viewport_state_info.viewportCount = 1;
+        viewport_state_info.scissorCount  = 1;
+
+        // Idk about this one ???
+        // https://vulkan-tutorial.com/en/Drawing_a_triangle/Graphics_pipeline_basics/Fixed_functions
+        viewport_state_info.pViewports = &viewport;
+        viewport_state_info.pScissors  = &scissor;
+
+        VkPipelineRasterizationStateCreateInfo rasterization_state_info{};
+        rasterization_state_info.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        rasterization_state_info.depthBiasClamp          = VK_FALSE;
+        rasterization_state_info.rasterizerDiscardEnable = VK_FALSE;
+        rasterization_state_info.polygonMode             = VK_POLYGON_MODE_FILL;
+        rasterization_state_info.lineWidth               = 1.0f;
+        rasterization_state_info.cullMode                = VK_CULL_MODE_BACK_BIT;
+        rasterization_state_info.frontFace               = VK_FRONT_FACE_CLOCKWISE;
+        rasterization_state_info.depthBiasEnable         = VK_FALSE;
+        rasterization_state_info.depthBiasEnable         = VK_FALSE;
+
+        // Optional
+        rasterization_state_info.depthBiasConstantFactor = 0.0f;
+        rasterization_state_info.depthBiasClamp          = 0.0f;
+        rasterization_state_info.depthBiasSlopeFactor    = 0.0f;
+
+        VkPipelineMultisampleStateCreateInfo multisample_state_info{};
+        multisample_state_info.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        multisample_state_info.rasterizationSamples  = VK_SAMPLE_COUNT_1_BIT;
+        multisample_state_info.sampleShadingEnable   = VK_FALSE;
+        multisample_state_info.minSampleShading      = 1.0f;
+        multisample_state_info.pSampleMask           = nullptr;
+        multisample_state_info.alphaToCoverageEnable = VK_FALSE;
+        multisample_state_info.alphaToOneEnable      = VK_FALSE;
+
+        VkPipelineColorBlendAttachmentState color_blend_attachment_state{};
+        color_blend_attachment_state.colorWriteMask =
+            VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT |
+            VK_COLOR_COMPONENT_A_BIT;
+
+        // Color blending disabled for this example
+        color_blend_attachment_state.blendEnable = VK_FALSE;
+
+        // Optional blend factors and operations
+        color_blend_attachment_state.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+        color_blend_attachment_state.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO;
+        color_blend_attachment_state.colorBlendOp        = VK_BLEND_OP_ADD;
+        color_blend_attachment_state.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        color_blend_attachment_state.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+        color_blend_attachment_state.alphaBlendOp        = VK_BLEND_OP_ADD;
+
+        VkPipelineColorBlendStateCreateInfo color_blend_state{};
+        color_blend_state.sType         = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        color_blend_state.logicOpEnable = VK_FALSE;
+        color_blend_state.logicOp       = VK_LOGIC_OP_COPY;  // Optional logic operation
+        color_blend_state.attachmentCount = 1;
+        color_blend_state.pAttachments    = &color_blend_attachment_state;
+
+        // Optional blend constants
+        color_blend_state.blendConstants[0] = 0.0f;
+        color_blend_state.blendConstants[1] = 0.0f;
+        color_blend_state.blendConstants[2] = 0.0f;
+        color_blend_state.blendConstants[3] = 0.0f;
+
+        VkPipelineLayoutCreateInfo pipeline_layout_info{};
+        pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+
+        // Optional push constants
+        pipeline_layout_info.setLayoutCount         = 0;
+        pipeline_layout_info.pSetLayouts            = nullptr;
+        pipeline_layout_info.pushConstantRangeCount = 0;
+        pipeline_layout_info.pPushConstantRanges    = nullptr;
+
+        if (vkCreatePipelineLayout(m_logical_device, &pipeline_layout_info, nullptr,
+                                   &m_pipeline_layout) != VK_SUCCESS) {
+            throw std::runtime_error(
+                "TriangleApplication::create_graphics_pipeline => failed to create pipeline "
+                "layout!");
+        }
 
         vkDestroyShaderModule(m_logical_device, vert_shader_module, nullptr);
         vkDestroyShaderModule(m_logical_device, frag_shader_module, nullptr);
-
     }
 
     static std::vector<char> read_file(const std::string& filename) {
@@ -720,8 +832,10 @@ class TriangleApplication {
         create_info.pCode    = reinterpret_cast<const uint32_t*>(code.data());
 
         VkShaderModule shader_module;
-        if (vkCreateShaderModule(m_logical_device, &create_info, nullptr, &shader_module) != VK_SUCCESS) {
-            throw std::runtime_error("TriangleApplication::create_shader_module => failed to create shader module!");
+        if (vkCreateShaderModule(m_logical_device, &create_info, nullptr, &shader_module) !=
+            VK_SUCCESS) {
+            throw std::runtime_error(
+                "TriangleApplication::create_shader_module => failed to create shader module!");
         }
 
         return shader_module;
