@@ -1,6 +1,10 @@
 #include <algorithm>
+#include <cstddef>
+#include <fstream>
+#include <ios>
 #include <limits>
 #include <set>
+#include <string>
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
 #include <vulkan/vk_platform.h>
@@ -103,6 +107,7 @@ class TriangleApplication {
         create_surface();
         pick_physical_device();
         create_logical_device();
+        create_graphics_pipleline();
     }
 
     void main_loop() {
@@ -654,11 +659,33 @@ class TriangleApplication {
             create_info.subresourceRange.baseArrayLayer = 0;
             create_info.subresourceRange.layerCount     = 1;
 
-            if (vkCreateImageView(m_logical_device, &create_info, nullptr, &m_swapchain_image_views[i]) != VK_SUCCESS) {
+            if (vkCreateImageView(m_logical_device, &create_info, nullptr,
+                                  &m_swapchain_image_views[i]) != VK_SUCCESS) {
                 throw std::runtime_error("failed to create image views!");
             }
         }
+    }
 
+    void create_graphics_pipleline() {
+        std::vector<char> vert_shader_code = read_file("shaders/vert.spv");
+        std::vector<char> frag_shader_code = read_file("shaders/frag.spv");
+    }
+
+    static std::vector<char> read_file(const std::string& filename) {
+        std::ifstream file(filename, std::ios::ate | std::ios::binary);
+
+        if (!file.is_open()) {
+            throw std::runtime_error("TriangleApplication::read_file => failed to open file!");
+        }
+
+        size_t            file_size = static_cast<size_t>(file.tellg());
+        std::vector<char> buffer(file_size);
+
+        file.seekg(0);
+        file.read(buffer.data(), file_size);
+        file.close();
+
+        return buffer;
     }
 };
 
