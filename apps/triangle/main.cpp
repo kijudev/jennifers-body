@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <fstream>
 #include <ios>
@@ -669,6 +670,30 @@ class TriangleApplication {
     void create_graphics_pipleline() {
         std::vector<char> vert_shader_code = read_file("shaders/vert.spv");
         std::vector<char> frag_shader_code = read_file("shaders/frag.spv");
+
+        VkShaderModule vert_shader_module = create_shader_module(vert_shader_code);
+        VkShaderModule frag_shader_module = create_shader_module(frag_shader_code);
+
+        VkPipelineShaderStageCreateInfo vert_shader_stage_info{};
+        vert_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        vert_shader_stage_info.stage = VK_SHADER_STAGE_VERTEX_BIT;
+        vert_shader_stage_info.module = vert_shader_module;
+        vert_shader_stage_info.pName = "main";
+
+        VkPipelineShaderStageCreateInfo frag_shader_stage_info{};
+        frag_shader_stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        frag_shader_stage_info.stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+        frag_shader_stage_info.module = frag_shader_module;
+        frag_shader_stage_info.pName = "main";
+
+        std::array<VkPipelineShaderStageCreateInfo, 2> shader_stages = {
+            vert_shader_stage_info,
+            frag_shader_stage_info
+        };
+
+        vkDestroyShaderModule(m_logical_device, vert_shader_module, nullptr);
+        vkDestroyShaderModule(m_logical_device, frag_shader_module, nullptr);
+
     }
 
     static std::vector<char> read_file(const std::string& filename) {
@@ -686,6 +711,20 @@ class TriangleApplication {
         file.close();
 
         return buffer;
+    }
+
+    VkShaderModule create_shader_module(const std::vector<char>& code) {
+        VkShaderModuleCreateInfo create_info{};
+        create_info.sType    = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+        create_info.codeSize = code.size();
+        create_info.pCode    = reinterpret_cast<const uint32_t*>(code.data());
+
+        VkShaderModule shader_module;
+        if (vkCreateShaderModule(m_logical_device, &create_info, nullptr, &shader_module) != VK_SUCCESS) {
+            throw std::runtime_error("TriangleApplication::create_shader_module => failed to create shader module!");
+        }
+
+        return shader_module;
     }
 };
 
