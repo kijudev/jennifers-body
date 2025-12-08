@@ -66,6 +66,8 @@ class TriangleApplication {
     VkPipelineLayout           m_pipeline_layout        = VK_NULL_HANDLE;
     VkPipeline                 m_graphics_pipeline      = VK_NULL_HANDLE;
     std::vector<VkFramebuffer> m_swapchain_framebuffers = {};
+    VkCommandPool              m_command_pool           = VK_NULL_HANDLE;
+    VkCommandBuffer            m_command_buffer         = VK_NULL_HANDLE;
 
     const std::vector<const char*> m_validation_layers = {"VK_LAYER_KHRONOS_validation"};
     const std::vector<const char*> m_device_extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
@@ -115,6 +117,8 @@ class TriangleApplication {
         create_render_pass();
         create_graphics_pipleline();
         create_framebuffers();
+        create_command_pool();
+        create_command_buffer();
     }
 
     void main_loop() {
@@ -124,6 +128,8 @@ class TriangleApplication {
     }
 
     void cleanup() {
+        vkDestroyCommandPool(m_logical_device, m_command_pool, nullptr);
+
         for (auto& framebuffer : m_swapchain_framebuffers) {
             vkDestroyFramebuffer(m_logical_device, framebuffer, nullptr);
         }
@@ -934,6 +940,85 @@ class TriangleApplication {
                 throw std::runtime_error(
                     "TriangleApplication::create_framebuffers => failed to create framebuffer!");
             }
+        }
+    }
+
+    void create_command_pool() {
+        QueueFamilyIndices queue_family_indices = find_queue_familiy_indices(m_physical_device);
+
+        VkCommandPoolCreateInfo command_pool_create_info{};
+        command_pool_create_info.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+        command_pool_create_info.queueFamilyIndex = queue_family_indices.graphics_family.value();
+        command_pool_create_info.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+
+        if (vkCreateCommandPool(m_logical_device, &command_pool_create_info, nullptr,
+                                &m_command_pool) != VK_SUCCESS) {
+            throw std::runtime_error(
+                "TriangleApplication::create_command_pool => failed to create command pool!");
+        }
+    }
+
+    void create_command_buffer() {
+        VkCommandBufferAllocateInfo command_buffer_allocate_info{};
+        command_buffer_allocate_info.sType       = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        command_buffer_allocate_info.commandPool = m_command_pool;
+        command_buffer_allocate_info.level       = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        command_buffer_allocate_info.commandBufferCount = 1;
+
+        if (vkAllocateCommandBuffers(m_logical_device, &command_buffer_allocate_info,
+                                     &m_command_buffer) != VK_SUCCESS) {
+            throw std::runtime_error(
+                "TriangleApplication::create_command_buffer => failed to allocate command buffer!");
+        }
+    }
+
+    void record_command_buffer(VkCommandBuffer command_buffer, uint32_t image_index) {
+        VkCommandBufferBeginInfo command_buffer_begin_info{};
+        command_buffer_begin_info.sType            = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        command_buffer_begin_info.flags            = 0;        // Optional
+        command_buffer_begin_info.pInheritanceInfo = nullptr;  // Optional
+
+        if (vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info) != VK_SUCCESS) {
+            throw std::runtime_error(
+                "TriangleApplication::record_command_buffer => failed to begin recording command "
+                "buffer!");
+        }
+
+        VkRenderPassBeginInfo render_pass_begin_info{};
+        render_pass_begin_info.sType             = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+        render_pass_begin_info.renderPass        = m_render_pass;
+        render_pass_begin_info.framebuffer       = m_swapchain_framebuffers[image_index];
+        render_pass_begin_info.renderArea.offset = {0, 0};
+        render_pass_begin_info.renderArea.extent = m_swapchain_extent;
+
+        VkClearValue clear_color               = {{{0.0f, 0.0f, 0.0f, 1.0f}}};
+        render_pass_begin_info.clearValueCount = 1;
+        render_pass_begin_info.pClearValues    = &clear_color;
+
+        vkCmdBeginRenderPass(command_buffer, &render_pass_begin_info, VK_SUBPASS_CONTENTS_INLINE);
+        vkCmdBindPipeline(m_command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_graphics_pipeline);
+
+        VkViewport viewport{};
+        viewport.x        = 0.0f;
+        viewport.y        = 0.0f;
+        viewport.width    = static_cast<float>(m_swapchain_extent.width);
+        viewport.height   = static_cast<float>(m_swapchain_extent.height);
+        viewport.minDepth = 0.0f;
+        viewport.maxDepth = 1.0f;
+        vkCmdSetViewport(command_buffer, 0, 1, &viewport);
+
+        VkRect2D scissor{};
+        scissor.offset = {0, 0};
+        scissor.extent = m_swapchain_extent;
+        vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+
+        vkCmdDraw(command_buffer, 3, 1, 0, 0);
+
+        vkCmdEndRenderPass(command_buffer);
+
+        if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS) {
+            throw std::runtime_error(
+                "TriangleApplication::record_command_buffer => failed to record command buffer!");
         }
     }
 };
