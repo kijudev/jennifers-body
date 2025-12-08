@@ -64,6 +64,7 @@ class TriangleApplication {
     std::vector<VkImageView> m_swapchain_image_views = {};
     VkRenderPass             m_render_pass           = VK_NULL_HANDLE;
     VkPipelineLayout         m_pipeline_layout       = VK_NULL_HANDLE;
+    VkPipeline               m_graphics_pipeline     = VK_NULL_HANDLE;
 
     const std::vector<const char*> m_validation_layers = {"VK_LAYER_KHRONOS_validation"};
     const std::vector<const char*> m_device_extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
@@ -121,6 +122,7 @@ class TriangleApplication {
     }
 
     void cleanup() {
+        vkDestroyPipeline(m_logical_device, m_graphics_pipeline, nullptr);
         vkDestroyPipelineLayout(m_logical_device, m_pipeline_layout, nullptr);
         vkDestroyRenderPass(m_logical_device, m_render_pass, nullptr);
 
@@ -839,6 +841,34 @@ class TriangleApplication {
             throw std::runtime_error(
                 "TriangleApplication::create_graphics_pipeline => failed to create pipeline "
                 "layout!");
+        }
+
+        VkGraphicsPipelineCreateInfo pipeline_create_info{};
+        pipeline_create_info.sType               = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        pipeline_create_info.stageCount          = static_cast<uint32_t>(shader_stages.size());
+        pipeline_create_info.pStages             = shader_stages.data();
+        pipeline_create_info.pVertexInputState   = &vertex_input_info;
+        pipeline_create_info.pInputAssemblyState = &input_assembly_info;
+        pipeline_create_info.pViewportState      = &viewport_state_info;
+        pipeline_create_info.pRasterizationState = &rasterization_state_info;
+        pipeline_create_info.pMultisampleState   = &multisample_state_info;
+        pipeline_create_info.pDepthStencilState  = nullptr;  // Optional;
+        pipeline_create_info.pColorBlendState    = &color_blend_state;
+        pipeline_create_info.pDynamicState       = &dynamic_state_info;
+
+        pipeline_create_info.layout     = m_pipeline_layout;
+        pipeline_create_info.renderPass = m_render_pass;
+        pipeline_create_info.subpass    = 0;
+
+        // Optional
+        pipeline_create_info.basePipelineHandle = VK_NULL_HANDLE;
+        pipeline_create_info.basePipelineIndex  = -1;
+
+        if (vkCreateGraphicsPipelines(m_logical_device, VK_NULL_HANDLE, 1, &pipeline_create_info,
+                                      nullptr, &m_graphics_pipeline) != VK_SUCCESS) {
+            throw std::runtime_error(
+                "TriangleApplication::create_graphics_pipeline => failed to create graphics "
+                "pipeline!");
         }
 
         vkDestroyShaderModule(m_logical_device, vert_shader_module, nullptr);
