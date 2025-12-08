@@ -118,11 +118,20 @@ class TriangleApplication {
         create_surface();
         pick_physical_device();
         create_logical_device();
+
+        // Create the swapchain and image views before creating the render pass and graphics
+        // pipeline so that `m_swapchain_format` and `m_swapchain_extent` are defined.
+        create_swapchain();
+        create_image_views();
+
         create_render_pass();
         create_graphics_pipleline();
         create_framebuffers();
         create_command_pool();
         create_command_buffer();
+
+        // Create synchronization objects last so they are available when drawing frames.
+        create_synchonization_objects();
     }
 
     void main_loop() {
