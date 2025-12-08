@@ -62,6 +62,7 @@ class TriangleApplication {
     VkFormat                 m_swapchain_format      = VK_FORMAT_UNDEFINED;
     VkExtent2D               m_swapchain_extent      = {};
     std::vector<VkImageView> m_swapchain_image_views = {};
+    VkRenderPass             m_render_pass           = VK_NULL_HANDLE;
     VkPipelineLayout         m_pipeline_layout       = VK_NULL_HANDLE;
 
     const std::vector<const char*> m_validation_layers = {"VK_LAYER_KHRONOS_validation"};
@@ -109,6 +110,7 @@ class TriangleApplication {
         create_surface();
         pick_physical_device();
         create_logical_device();
+        create_render_pass();
         create_graphics_pipleline();
     }
 
@@ -120,6 +122,7 @@ class TriangleApplication {
 
     void cleanup() {
         vkDestroyPipelineLayout(m_logical_device, m_pipeline_layout, nullptr);
+        vkDestroyRenderPass(m_logical_device, m_render_pass, nullptr);
 
         for (auto image_view : m_swapchain_image_views) {
             vkDestroyImageView(m_logical_device, image_view, nullptr);
@@ -641,6 +644,40 @@ class TriangleApplication {
                                        capabilities.maxImageExtent.height);
 
             return extent;
+        }
+    }
+
+    void create_render_pass() {
+        VkAttachmentDescription color_attachment_description = {};
+        color_attachment_description.format                  = m_swapchain_format;
+        color_attachment_description.samples                 = VK_SAMPLE_COUNT_1_BIT;
+        color_attachment_description.loadOp                  = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        color_attachment_description.storeOp                 = VK_ATTACHMENT_STORE_OP_STORE;
+        color_attachment_description.stencilLoadOp           = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        color_attachment_description.stencilStoreOp          = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        color_attachment_description.initialLayout           = VK_IMAGE_LAYOUT_UNDEFINED;
+        color_attachment_description.finalLayout             = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+
+        VkAttachmentReference color_attachment_reference = {};
+        color_attachment_reference.attachment            = 0;
+        color_attachment_reference.layout                = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+        VkSubpassDescription subpass = {};
+        subpass.pipelineBindPoint    = VK_PIPELINE_BIND_POINT_GRAPHICS;
+        subpass.colorAttachmentCount = 1;
+        subpass.pColorAttachments    = &color_attachment_reference;
+
+        VkRenderPassCreateInfo render_pass_create_info = {};
+        render_pass_create_info.sType                  = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+        render_pass_create_info.attachmentCount        = 1;
+        render_pass_create_info.pAttachments           = &color_attachment_description;
+        render_pass_create_info.subpassCount           = 1;
+        render_pass_create_info.pSubpasses             = &subpass;
+
+        if (vkCreateRenderPass(m_logical_device, &render_pass_create_info, nullptr,
+                               &m_render_pass) != VK_SUCCESS) {
+            throw std::runtime_error(
+                "TriangleApplication::create_render_pass => Failed to create render pass!");
         }
     }
 
