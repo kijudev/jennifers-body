@@ -49,22 +49,23 @@ class TriangleApplication {
     static constexpr bool ENABLE_VALIDATION_LAYERS = true;
 #endif
 
-    GLFWwindow*              m_window                = nullptr;
-    VkInstance               m_instance              = VK_NULL_HANDLE;
-    VkDebugUtilsMessengerEXT m_debug_messenger       = VK_NULL_HANDLE;
-    VkSurfaceKHR             m_surface               = VK_NULL_HANDLE;
-    VkPhysicalDevice         m_physical_device       = VK_NULL_HANDLE;
-    VkDevice                 m_logical_device        = VK_NULL_HANDLE;
-    VkQueue                  m_graphics_queue        = VK_NULL_HANDLE;
-    VkQueue                  m_presentation_queue    = VK_NULL_HANDLE;
-    VkSwapchainKHR           m_swapchain             = VK_NULL_HANDLE;
-    std::vector<VkImage>     m_swapchain_images      = {};
-    VkFormat                 m_swapchain_format      = VK_FORMAT_UNDEFINED;
-    VkExtent2D               m_swapchain_extent      = {};
-    std::vector<VkImageView> m_swapchain_image_views = {};
-    VkRenderPass             m_render_pass           = VK_NULL_HANDLE;
-    VkPipelineLayout         m_pipeline_layout       = VK_NULL_HANDLE;
-    VkPipeline               m_graphics_pipeline     = VK_NULL_HANDLE;
+    GLFWwindow*                m_window                 = nullptr;
+    VkInstance                 m_instance               = VK_NULL_HANDLE;
+    VkDebugUtilsMessengerEXT   m_debug_messenger        = VK_NULL_HANDLE;
+    VkSurfaceKHR               m_surface                = VK_NULL_HANDLE;
+    VkPhysicalDevice           m_physical_device        = VK_NULL_HANDLE;
+    VkDevice                   m_logical_device         = VK_NULL_HANDLE;
+    VkQueue                    m_graphics_queue         = VK_NULL_HANDLE;
+    VkQueue                    m_presentation_queue     = VK_NULL_HANDLE;
+    VkSwapchainKHR             m_swapchain              = VK_NULL_HANDLE;
+    std::vector<VkImage>       m_swapchain_images       = {};
+    VkFormat                   m_swapchain_format       = VK_FORMAT_UNDEFINED;
+    VkExtent2D                 m_swapchain_extent       = {};
+    std::vector<VkImageView>   m_swapchain_image_views  = {};
+    VkRenderPass               m_render_pass            = VK_NULL_HANDLE;
+    VkPipelineLayout           m_pipeline_layout        = VK_NULL_HANDLE;
+    VkPipeline                 m_graphics_pipeline      = VK_NULL_HANDLE;
+    std::vector<VkFramebuffer> m_swapchain_framebuffers = {};
 
     const std::vector<const char*> m_validation_layers = {"VK_LAYER_KHRONOS_validation"};
     const std::vector<const char*> m_device_extensions = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
@@ -113,6 +114,7 @@ class TriangleApplication {
         create_logical_device();
         create_render_pass();
         create_graphics_pipleline();
+        create_framebuffers();
     }
 
     void main_loop() {
@@ -122,6 +124,10 @@ class TriangleApplication {
     }
 
     void cleanup() {
+        for (auto& framebuffer : m_swapchain_framebuffers) {
+            vkDestroyFramebuffer(m_logical_device, framebuffer, nullptr);
+        }
+
         vkDestroyPipeline(m_logical_device, m_graphics_pipeline, nullptr);
         vkDestroyPipelineLayout(m_logical_device, m_pipeline_layout, nullptr);
         vkDestroyRenderPass(m_logical_device, m_render_pass, nullptr);
@@ -906,6 +912,29 @@ class TriangleApplication {
         }
 
         return shader_module;
+    }
+
+    void create_framebuffers() {
+        m_swapchain_framebuffers.resize(m_swapchain_image_views.size());
+
+        for (size_t i = 0; i < m_swapchain_image_views.size(); ++i) {
+            VkImageView attachments[] = {m_swapchain_image_views[i]};
+
+            VkFramebufferCreateInfo framebuffer_create_info{};
+            framebuffer_create_info.sType           = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+            framebuffer_create_info.renderPass      = m_render_pass;
+            framebuffer_create_info.attachmentCount = 1;
+            framebuffer_create_info.pAttachments    = attachments;
+            framebuffer_create_info.width           = m_swapchain_extent.width;
+            framebuffer_create_info.height          = m_swapchain_extent.height;
+            framebuffer_create_info.layers          = 1;
+
+            if (vkCreateFramebuffer(m_logical_device, &framebuffer_create_info, nullptr,
+                                    &m_swapchain_framebuffers[i]) != VK_SUCCESS) {
+                throw std::runtime_error(
+                    "TriangleApplication::create_framebuffers => failed to create framebuffer!");
+            }
+        }
     }
 };
 
